@@ -44,7 +44,7 @@ class Game:
         """Charge les images et prépare les listes Droite/Gauche."""
         try:
             # 1. IDLE
-            idle_sheet = pygame.image.load(os.path.join(SPRITE_DIR, "Angry.png")).convert_alpha()
+            idle_sheet = pygame.image.load(os.path.join(SPRITE_DIR, "Walk_attack.png")).convert_alpha()
             self.frames_idle_r = self.split_sheet(idle_sheet, 6)
             self.frames_idle_l = self.flip_frames(self.frames_idle_r)
 
