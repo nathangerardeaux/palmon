@@ -2,272 +2,327 @@ import pygame
 import os
 
 # ==============================================================================
-# CONFIGURATION & CONSTANTS
+# CONFIGURATION GLOBALE & CONSTANTES
 # ==============================================================================
-# Display Settings
+# Paramètres d'affichage et de boucle de jeu
 SCREEN_WIDTH = 896
-SCREEN_HEIGHT = 1152
+SCREEN_HEIGHT = 900
 FPS = 60
-TITLE = "RPG Engine: Top-Down Physics & Rendering"
+TITLE = "RPG Engine: Big Player, Normal Map"
+COLOR_BG = (20, 20, 20)
 
-# Rendering Colors
-COLOR_BG = (20, 20, 20)  # Dark grey fallback for off-map areas
+# Paramètres de gameplay
+MOVE_SPEED = 5 
 
-# Gameplay Mechanics
-MOVE_SPEED = 5           # Pixels per frame
-ZOOM_FACTOR = 1.5        # Global scaling for pixel-art consistency
+# --- GESTION DES ÉCHELLES D'AFFICHAGE (SCALING) ---
+# ZOOM_FACTOR  : Appliqué à l'environnement (Carte, Collisions).
+# PLAYER_SCALE : Appliqué aux entités (Joueur).
+# Note : Une échelle joueur plus élevée crée un effet de "géant" ou de gros plan.
+ZOOM_FACTOR = 1.5   
+PLAYER_SCALE = 2.5  
 
-# File System Paths
-# Using os.path ensures cross-platform compatibility (Windows/Linux/Mac)
+# --- GESTION DES CHEMINS DE FICHIERS ---
 BASE_DIR = os.path.dirname(__file__)
 SPRITE_DIR = os.path.join(BASE_DIR, "sprite", "3")
-MAP_PATH = os.path.join(BASE_DIR, "sale2.png")
-COLLISION_PATH = os.path.join(BASE_DIR, "colision2.png")
+MAP_PATH = os.path.join(BASE_DIR, "sale3.png")
+COLLISION_PATH = os.path.join(BASE_DIR, "colision3.png")
 
+# Noms des fichiers de spritesheets
+WALK_SPRITESHEET = "lvl1Walk.png" 
+ATTACK_SPRITESHEET = "lvl1Attack.png"
+
+# ==============================================================================
+# CLASSE PRINCIPALE DU JEU
+# ==============================================================================
 class Game:
     """
-    Main Game Class.
-    Manages the game loop, asset loading, physics engine, and rendering pipeline.
+    Classe principale gérant l'initialisation, la boucle de jeu, 
+    la gestion des événements et le rendu graphique.
     """
+
     def __init__(self):
-        # Initialize Pygame core modules
+        """Initialisation des modules Pygame, de la fenêtre et des variables d'état."""
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.running = True
 
-        # Pipeline initialization
+        # Chargement des ressources graphiques et initialisation du joueur
         self.load_assets()
         self.init_player()
 
     def load_assets(self):
         """
-        Loads all game assets (textures, maps, collision masks) into VRAM.
-        Handles scaling and mask generation for pixel-perfect collisions.
+        Charge les images, cartes et sprites en mémoire.
+        Gère le redimensionnement distinct pour la carte (ZOOM_FACTOR) 
+        et le joueur (PLAYER_SCALE).
         """
         try:
-            # --- 1. Map Visual Layer ---
-            # Convert() is crucial for performance (matches display format)
+            # --- 1. CHARGEMENT DE LA CARTE ---
             raw_map = pygame.image.load(MAP_PATH).convert()
-            
-            # Apply global zoom factor
             self.map_width = int(raw_map.get_width() * ZOOM_FACTOR)
             self.map_height = int(raw_map.get_height() * ZOOM_FACTOR)
             self.map_image = pygame.transform.scale(raw_map, (self.map_width, self.map_height))
 
-            # --- 2. Physics Layer (Collision Mask) ---
+            # --- 2. GESTION DES COLLISIONS ---
+            # Charge le masque de collision s'il existe, sinon désactive la physique des murs.
             if os.path.exists(COLLISION_PATH):
                 raw_col = pygame.image.load(COLLISION_PATH).convert()
                 self.collision_image = pygame.transform.scale(raw_col, (self.map_width, self.map_height))
                 
-                # Thresholding: Creates a binary mask from the image.
-                # Logic: Only pixels close to Pure Black (0,0,0) are considered Walls (1).
-                # Tolerance (2,2,2) handles potential JPEG/PNG compression artifacts.
+                # Création d'un masque binaire basé sur la couleur noire (seuillage)
                 self.collision_mask = pygame.mask.from_threshold(
-                    self.collision_image,
-                    (0, 0, 0),       # Target: Black walls
-                    (2, 2, 2)        # Tolerance: Strict
+                    self.collision_image, (0, 0, 0), (2, 2, 2)
                 )
                 self.has_collision_map = True
-                print("[INFO] Collision mask generated successfully.")
             else:
                 self.has_collision_map = False
-                print(f"[WARNING] Collision map not found at {COLLISION_PATH}. Physics disabled.")
 
-            # --- 3. Entity Sprites ---
-            # Loading spritesheets. convert_alpha() is required for transparency.
-            idle_sheet = pygame.image.load(os.path.join(SPRITE_DIR, "Angry.png")).convert_alpha()
-            self.frames_idle_r = self.split_sheet(idle_sheet, 6)
-            self.frames_idle_l = self.flip_frames(self.frames_idle_r)
-
-            run_sheet = pygame.image.load(os.path.join(SPRITE_DIR, "Walk.png")).convert_alpha()
-            self.frames_run_r = self.split_sheet(run_sheet, 6)
-            self.frames_run_l = self.flip_frames(self.frames_run_r)
+            # --- 3. CHARGEMENT ET DÉCOUPAGE DES SPRITES ---
+            
+            # -> Animation de MARCHE
+            walk_sheet = pygame.image.load(os.path.join(SPRITE_DIR, WALK_SPRITESHEET)).convert_alpha()
+            self.animations_walk = self.cut_grid_sheet(walk_sheet, rows=4, cols=6, scale=PLAYER_SCALE)
+            
+            # -> Animation d'ATTAQUE
+            attack_sheet = pygame.image.load(os.path.join(SPRITE_DIR, ATTACK_SPRITESHEET)).convert_alpha()
+            
+            # Hack : Correction de la largeur de la feuille de sprite si elle n'est pas multiple de 8
+            # Cela évite des artefacts lors du découpage automatique.
+            if attack_sheet.get_width() % 8 != 0:
+                 new_w = (attack_sheet.get_width() // 8 + 1) * 8
+                 attack_sheet = pygame.transform.scale(attack_sheet, (new_w, attack_sheet.get_height()))
+            
+            self.animations_attack = self.cut_grid_sheet(attack_sheet, rows=4, cols=8, scale=PLAYER_SCALE)
 
         except FileNotFoundError as e:
-            print(f"[CRITICAL] Asset loading failed: {e}")
+            print(f"[CRITICAL] Erreur lors du chargement des assets : {e}")
             self.running = False
 
+    def cut_grid_sheet(self, sheet, rows, cols, scale):
+        """
+        Découpe une feuille de sprites (spritesheet) en une grille d'images individuelles.
+        
+        Args:
+            sheet (Surface): L'image source complète.
+            rows (int): Nombre de lignes (directions).
+            cols (int): Nombre de colonnes (frames d'animation).
+            scale (float): Facteur de redimensionnement à appliquer à chaque frame.
+            
+        Returns:
+            dict: Dictionnaire {direction: [liste_de_frames]}.
+        """
+        frame_width = sheet.get_width() // cols
+        frame_height = sheet.get_height() // rows
+        animations = {}
+        directions = ['down', 'left', 'right', 'up'] # Ordre standard des RPG Maker/LPC
+        
+        for row_index in range(rows):
+            direction = directions[row_index]
+            frames = []
+            for col_index in range(cols):
+                # Extraction du rectangle correspondant à la frame
+                rect = pygame.Rect(col_index * frame_width, row_index * frame_height, frame_width, frame_height)
+                frame = sheet.subsurface(rect)
+                
+                # Application de l'échelle spécifique (PLAYER_SCALE)
+                scaled = pygame.transform.scale(frame, (int(frame_width * scale), int(frame_height * scale)))
+                frames.append(scaled)
+            animations[direction] = frames
+        return animations
+
     def init_player(self):
-        """Initializes player state, position, and camera."""
-        # Spawn Point Calculation:
-        # Center X, and slightly above the bottom boundary (to avoid spawning inside the south wall)
+        """Initialise la position, l'état et les variables d'animation du joueur."""
+        # Positionnement initial (centré horizontalement, décalé vers le bas)
         self.player_x = self.map_width // 2
-        self.player_y = self.map_height - 230 
+        self.player_y = self.map_height - 330 
         
-        # State Machine
-        self.facing_right = True
+        # États
+        self.facing_direction = 'down'
         self.state = 'idle'
+        self.is_attacking = False
         
-        # Animation
+        # Animation & Caméra
         self.current_frame = 0
         self.animation_speed = 0.2
-        
-        # Camera (Viewport)
         self.camera_x = 0
         self.camera_y = 0
 
-    def split_sheet(self, sheet, frame_count):
-        """Utility: Slices a spritesheet into a list of scaled surfaces."""
-        frames = []
-        fw = sheet.get_width() // frame_count
-        fh = sheet.get_height()
-        for i in range(frame_count):
-            rect = pygame.Rect(i * fw, 0, fw, fh)
-            frame = sheet.subsurface(rect)
-            # Scaling applied here to match map zoom
-            frame = pygame.transform.scale(frame, (int(fw * 2 * ZOOM_FACTOR), int(fh * 2 * ZOOM_FACTOR)))
-            frames.append(frame)
-        return frames
-
-    def flip_frames(self, frames_list):
-        """Utility: Creates mirrored versions of sprites (Horizontal flip)."""
-        return [pygame.transform.flip(f, True, False) for f in frames_list]
-
     def run(self):
-        """Core Game Loop."""
+        """Boucle principale du jeu (Game Loop)."""
         while self.running:
-            # 1. Input Polling
-            self.handle_input()
-            
-            # 2. Physics & Logic Update
-            self.update_physics()
-            self.update_camera()
-            self.update_animation()
-            
-            # 3. Rendering
-            self.draw()
-            
-            # 4. Frame Pacing (VSync equivalent)
-            self.clock.tick(FPS)
+            self.handle_input()      # 1. Entrées utilisateur
+            self.update_physics()    # 2. Mouvement et collisions
+            self.update_camera()     # 3. Positionnement caméra
+            self.update_animation()  # 4. Calcul de la frame actuelle
+            self.draw()              # 5. Rendu à l'écran
+            self.clock.tick(FPS)     # Régulation des FPS
         pygame.quit()
 
     def handle_input(self):
-        """Processes raw hardware input into game actions."""
+        """Gestion des événements Pygame (clavier, fermeture fenêtre)."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            
+            # Gestion des actions ponctuelles (Attaque)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_a:
+                    if not self.is_attacking:
+                        self.is_attacking = True
+                        self.state = 'attacking'
+                        self.current_frame = 0
 
-        # Continuous keyboard polling for smooth movement
+        # Si le joueur attaque, on bloque les mouvements
+        if self.is_attacking:
+            self.input_x = 0
+            self.input_y = 0
+            return
+
+        # Gestion des mouvements continus (Déplacement)
         keys = pygame.key.get_pressed()
-        
         self.input_x = 0
         self.input_y = 0
 
-        # Normalization vector (Diagonal movement handling is simplified here)
-        if keys[pygame.K_LEFT]:  self.input_x = -MOVE_SPEED
-        if keys[pygame.K_RIGHT]: self.input_x = MOVE_SPEED
-        if keys[pygame.K_UP]:    self.input_y = -MOVE_SPEED
-        if keys[pygame.K_DOWN]:  self.input_y = MOVE_SPEED
+        if keys[pygame.K_LEFT]:
+            self.input_x = -MOVE_SPEED
+            self.facing_direction = 'left'
+        elif keys[pygame.K_RIGHT]:
+            self.input_x = MOVE_SPEED
+            self.facing_direction = 'right'
             
-        # Update facing direction state
-        if self.input_x > 0: self.facing_right = True
-        elif self.input_x < 0: self.facing_right = False
+        if keys[pygame.K_UP]:
+            self.input_y = -MOVE_SPEED
+            self.facing_direction = 'up'
+        elif keys[pygame.K_DOWN]:
+            self.input_y = MOVE_SPEED
+            self.facing_direction = 'down'
+        
+        # Mise à jour de la direction prioritaire en cas de mouvement diagonal
+        if self.input_x != 0 and self.input_y != 0:
+             if keys[pygame.K_DOWN]: self.facing_direction = 'down'
+             elif keys[pygame.K_UP]: self.facing_direction = 'up'
+             elif keys[pygame.K_LEFT]: self.facing_direction = 'left'
+             elif keys[pygame.K_RIGHT]: self.facing_direction = 'right'
 
-    def check_wall(self, x, y):
-        """
-        Performs a pixel-perfect collision check against the collision mask.
-        Returns True if the coordinate (x, y) overlaps with a wall bit.
-        """
-        if not self.has_collision_map:
-            return False
-            
-        # 1. Bounds Checking: Prevent querying outside mask memory
-        if x < 0 or x >= self.map_width or y < 0 or y >= self.map_height:
-            return True
-
-        # 2. Bitmask Lookup
-        try:
-            # get_at() returns 1 (True) if the pixel matches the threshold (Wall)
-            if self.collision_mask.get_at((int(x), int(y))):
-                return True
-        except IndexError:
-            return True
-
-        return False
-
-    def update_physics(self):
-        """
-        Applies movement with 'Sliding Collision' logic.
-        We check X and Y axes independently to allow sliding along walls.
-        """
-        # Axis X check
-        new_x = self.player_x + self.input_x
-        if not self.check_wall(new_x, self.player_y):
-            self.player_x = new_x
-
-        # Axis Y check
-        new_y = self.player_y + self.input_y
-        if not self.check_wall(self.player_x, new_y):
-            self.player_y = new_y
-
-        # State update for animation system
+        # Mise à jour de l'état (Course ou Repos)
         if self.input_x != 0 or self.input_y != 0:
             self.state = 'running'
         else:
             self.state = 'idle'
 
+    def check_wall(self, x, y):
+        """
+        Vérifie la collision avec les murs via le masque de collision.
+        Retourne True si une collision est détectée ou si on sort de la carte.
+        """
+        if not self.has_collision_map: return False
+        
+        # Vérification des limites de la carte
+        if x < 0 or x >= self.map_width or y < 0 or y >= self.map_height: 
+            return True
+        
+        try:
+            # Vérification pixel-perfect sur le masque
+            if self.collision_mask.get_at((int(x), int(y))): 
+                return True
+        except IndexError:
+            return True # Sécurité en cas de débordement d'index
+        return False
+
+    def update_physics(self):
+        """Applique le mouvement sur les axes X et Y séparément pour gérer le glissement contre les murs."""
+        if self.is_attacking: return
+
+        # Mouvement Axe X
+        new_x = self.player_x + self.input_x
+        if not self.check_wall(new_x, self.player_y):
+            self.player_x = new_x
+
+        # Mouvement Axe Y
+        new_y = self.player_y + self.input_y
+        if not self.check_wall(self.player_x, new_y):
+            self.player_y = new_y
+
     def update_camera(self):
         """
-        Calculates viewport position to keep player centered.
-        Includes clamping to ensure the camera never shows out-of-bounds areas.
+        Calcule la position de la caméra pour centrer le joueur.
+        La caméra est 'clampée' (restreinte) aux bords de la carte.
         """
-        # Target: Player center minus half screen size
         target_x = self.player_x - (SCREEN_WIDTH // 2)
         target_y = self.player_y - (SCREEN_HEIGHT // 2)
         
-        # Clamp: Keep camera within Map Bounds (0 to MapSize - ScreenSize)
+        # Restriction aux dimensions de la carte
         target_x = max(0, min(target_x, self.map_width - SCREEN_WIDTH))
         target_y = max(0, min(target_y, self.map_height - SCREEN_HEIGHT))
         
-        # Centering fallback: If map is smaller than screen, center it
+        # Centrage spécial si la carte est plus petite que l'écran
         if self.map_width < SCREEN_WIDTH: 
             target_x = -(SCREEN_WIDTH - self.map_width) // 2
         if self.map_height < SCREEN_HEIGHT: 
             target_y = -(SCREEN_HEIGHT - self.map_height) // 2
-
+            
         self.camera_x = target_x
         self.camera_y = target_y
 
     def update_animation(self):
-        """Cycles through sprite frames based on delta time and state."""
+        """Gère la progression des frames d'animation selon l'état du joueur."""
+        current_anim_list = []
+        
+        if self.state == 'attacking':
+            self.animation_speed = 0.35
+            current_anim_list = self.animations_attack[self.facing_direction]
+            
+        elif self.state == 'running':
+            self.animation_speed = 0.2
+            current_anim_list = self.animations_walk[self.facing_direction]
+            
+        else: # state == 'idle'
+            # En idle, on affiche simplement la première frame de marche
+            current_anim_list = [self.animations_walk[self.facing_direction][0]]
+
         self.current_frame += self.animation_speed
         
-        if self.state == 'idle': 
-            limit = len(self.frames_idle_r)
-        else: 
-            limit = len(self.frames_run_r)
+        # Gestion de la fin de l'animation
+        if self.current_frame >= len(current_anim_list):
+            if self.state == 'attacking':
+                self.is_attacking = False
+                self.state = 'idle'
+                self.current_frame = 0
+            else:
+                self.current_frame = 0 # Boucle l'animation
             
-        if self.current_frame >= limit: 
-            self.current_frame = 0
+        frame_index = int(self.current_frame)
+        
+        # Sécurité pour éviter l'index out of bounds
+        if frame_index >= len(current_anim_list): frame_index = 0
+        
+        self.image_to_draw = current_anim_list[frame_index]
 
     def draw(self):
-        """Render pass: Clears screen and draws layers in Z-order."""
+        """Rendu graphique des couches (Background -> Map -> Player)."""
         self.screen.fill(COLOR_BG)
         
-        # Layer 0: Background Map (Offset by camera)
+        # Rendu de la carte avec décalage caméra
         self.screen.blit(self.map_image, (-self.camera_x, -self.camera_y))
         
-        # Layer 1: Player Entity
-        # Select appropriate sprite based on State and Direction
-        frames = self.frames_run_r if self.state == 'running' else self.frames_idle_r
-        if not self.facing_right: 
-            frames = self.frames_idle_l if self.state == 'idle' else self.frames_run_l
-        
-        image = frames[int(self.current_frame)]
-        rect = image.get_rect()
-        
-        # Coordinate Space Transformation: World Space -> Screen Space
+        # Calcul de la position écran du joueur
+        rect = self.image_to_draw.get_rect()
         screen_x = self.player_x - self.camera_x
         screen_y = self.player_y - self.camera_y
         
-        # Pivot point: Mid-Bottom (Feet) for correct depth perception
+        # Le point de pivot est 'midbottom' (les pieds du personnage)
         rect.midbottom = (screen_x, screen_y)
         
-        self.screen.blit(image, rect)
+        # Correction visuelle spécifique pour l'attaque (à cause de la taille de l'épée/effet)
+        if self.state == 'attacking':
+            offset = 30 
+            if self.facing_direction == 'right': rect.x -= offset 
+            elif self.facing_direction == 'left': rect.x += offset
         
-        # Buffer Swap
+        self.screen.blit(self.image_to_draw, rect)
+        
         pygame.display.flip()
 
 if __name__ == '__main__':
