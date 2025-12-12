@@ -1,5 +1,6 @@
 import pygame
 import os
+import sys
 from settings import *
 
 class Player(pygame.sprite.Sprite):
@@ -7,6 +8,13 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
         self.x = start_x
         self.y = start_y
+        
+        # --- NOUVEAU : STATS DU JOUEUR ---
+        self.max_health = 100
+        self.health = self.max_health
+        self.damage = 25  # Le joueur fait 25 de dégâts par coup
+        # ---------------------------------
+
         self.facing = 'down'
         self.state = 'idle'
         self.is_attacking = False
@@ -19,8 +27,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.midbottom = (self.x, self.y)
 
-        # CRÉATION DE LA HITBOX 
-        # inflate(-X, -Y) réduit la taille du rectangle.
+        # HITBOX
         self.hitbox = self.rect.inflate(-100, -95)
 
     def load_sprites(self):
@@ -140,3 +147,12 @@ class Player(pygame.sprite.Sprite):
             offset = 30
             if self.facing == 'right': self.rect.x -= offset
             elif self.facing == 'left': self.rect.x += offset
+    # À AJOUTER DANS PLAYER.PY (À la fin de la classe)
+    def take_damage(self, amount):
+        self.health -= amount
+        print(f"AIE ! Le joueur a pris {amount} dégâts. Vie restante : {self.health}")
+        
+        if self.health <= 0:
+            print("GAME OVER ! (Le joueur est mort)")
+            pygame.quit()
+            sys.exit()
