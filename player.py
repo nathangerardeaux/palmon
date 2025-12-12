@@ -9,11 +9,16 @@ class Player(pygame.sprite.Sprite):
         self.x = start_x
         self.y = start_y
         
-        # --- NOUVEAU : STATS DU JOUEUR ---
+        # --- STATS ---
         self.max_health = 100
         self.health = self.max_health
-        self.damage = 25  # Le joueur fait 25 de dégâts par coup
-        # ---------------------------------
+        self.damage = 25
+        
+        # --- XP & NIVEAUX ---
+        self.level = 1
+        self.current_xp = 0
+        self.max_xp = 100
+        # --------------------
 
         self.facing = 'down'
         self.state = 'idle'
@@ -22,12 +27,9 @@ class Player(pygame.sprite.Sprite):
         self.animation_speed = 0.2
         
         self.load_sprites()
-        
         self.image = self.anims_walk['down'][0]
         self.rect = self.image.get_rect()
         self.rect.midbottom = (self.x, self.y)
-
-        # HITBOX
         self.hitbox = self.rect.inflate(-100, -95)
 
     def load_sprites(self):
@@ -77,34 +79,45 @@ class Player(pygame.sprite.Sprite):
             self.state = 'attacking'
             self.frame_index = 0
 
+    # --- GESTION XP ---
+    def gain_xp(self, amount):
+        self.current_xp += amount
+        while self.current_xp >= self.max_xp:
+            self.current_xp -= self.max_xp
+            self.level_up()
+
+    def level_up(self):
+        self.level += 1
+        self.max_health += 20
+        self.damage += 5
+        self.health = self.max_health
+        self.max_xp = int(self.max_xp * 1.2)
+        print(f"NIVEAU {self.level} ! PV: {self.max_health}, DMG: {self.damage}")
+
+    def take_damage(self, amount):
+        self.health -= amount
+        if self.health <= 0:
+            self.health = 0
+
     def update(self, game_map):
         dx, dy = self.handle_input()
 
-        # PHYSIQUE AVEC HITBOX 
-        
-        # 1. Test Axe X
         self.hitbox.x += dx
-        # On vérifie le centre de la hitbox et ses coins
         if game_map.check_wall(self.hitbox.centerx, self.hitbox.centery) or \
            game_map.check_wall(self.hitbox.left, self.hitbox.centery) or \
            game_map.check_wall(self.hitbox.right, self.hitbox.centery):
-            # Si collision, on annule le mouvement
             self.hitbox.x -= dx
         
-        # 2. Test Axe Y
         self.hitbox.y += dy
         if game_map.check_wall(self.hitbox.centerx, self.hitbox.centery) or \
            game_map.check_wall(self.hitbox.centerx, self.hitbox.top) or \
            game_map.check_wall(self.hitbox.centerx, self.hitbox.bottom):
-            # Si collision, on annule
             self.hitbox.y -= dy
 
-        # 3. On met à jour la position réelle (x,y) et le rect d'image selon la hitbox
         self.rect.center = self.hitbox.center
         self.x = self.rect.midbottom[0]
         self.y = self.rect.midbottom[1]
 
-        # --- UPDATE ETATS ---
         if self.is_attacking: self.state = 'attacking'
         elif dx != 0 or dy != 0: self.state = 'running'
         else: self.state = 'idle'
@@ -112,7 +125,6 @@ class Player(pygame.sprite.Sprite):
         self.animate()
 
     def animate(self):
-        # (Identique à avant, sauf la fin)
         current_list = []
         speed = 0.2
         if self.state == 'attacking':
@@ -136,23 +148,11 @@ class Player(pygame.sprite.Sprite):
         if idx >= len(current_list): idx = 0
         self.image = current_list[idx]
         
-        # --- RE-SYNCHRONISATION HITBOX/IMAGE ---
-        # On garde la hitbox au même endroit, et on recentre l'image dessus
         old_center = self.hitbox.center
         self.rect = self.image.get_rect()
         self.rect.center = old_center
         
-        # Correction visuelle attaque (Offset)
         if self.state == 'attacking':
             offset = 30
             if self.facing == 'right': self.rect.x -= offset
             elif self.facing == 'left': self.rect.x += offset
-    # À AJOUTER DANS PLAYER.PY (À la fin de la classe)
-    def take_damage(self, amount):
-        self.health -= amount
-        print(f"AIE ! Le joueur a pris {amount} dégâts. Vie restante : {self.health}")
-        
-        if self.health <= 0:
-            print("GAME OVER ! (Le joueur est mort)")
-            pygame.quit()
-            sys.exit()

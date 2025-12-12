@@ -4,17 +4,15 @@ import math
 from settings import *
 
 class Enemy(pygame.sprite.Sprite):
-    # ON AJOUTE max_health et damage DANS LES PARAMETRES
-    def __init__(self, start_x, start_y, max_health=100, damage=10):
+    def __init__(self, start_x, start_y, max_health=100, damage=10, xp_reward=20):
         super().__init__()
         self.x = start_x
         self.y = start_y
         
-        # --- STATS DYNAMIQUES ---
         self.max_health = max_health
         self.health = self.max_health
         self.damage = damage
-        # ------------------------
+        self.xp_reward = xp_reward # Combien d'XP il donne
 
         self.attack_range = 30
         self.attack_cooldown = 2000
@@ -33,9 +31,7 @@ class Enemy(pygame.sprite.Sprite):
         self.rect.midbottom = (self.x, self.y)
         self.hitbox = self.rect.inflate(-100, -95)
 
-
     def load_sprites(self):
-        # (Identique à avant)
         path_walk = os.path.join(SPRITE_DIR, WALK_SPRITE)
         sheet_walk = pygame.image.load(path_walk).convert_alpha()
         self.anims_walk = self.cut_sheet(sheet_walk, 4, 6)
@@ -68,18 +64,29 @@ class Enemy(pygame.sprite.Sprite):
             self.animate()
             return 
 
-        dx_val = player.x - self.rect.centerx
-        dy_val = player.y - self.rect.centery
+        target_x = player.hitbox.centerx
+        target_y = player.hitbox.centery
+        
+        dx_val = target_x - self.hitbox.centerx
+        dy_val = target_y - self.hitbox.centery
         dist = math.hypot(dx_val, dy_val)
 
-        if dist > 20: 
-            # --- MOUVEMENT (Si loin) ---
+        if self.hitbox.colliderect(player.hitbox):
+            self.state = 'idle'
+            if abs(dx_val) > abs(dy_val):
+                self.facing = 'right' if dx_val > 0 else 'left'
+            else:
+                self.facing = 'down' if dy_val > 0 else 'up'
+            self.check_attack(player)
+
+        elif dist > 5:
             move_x = (dx_val / dist) * MOB_SPEED
             move_y = (dy_val / dist) * MOB_SPEED
             
             self.hitbox.x += move_x
             if game_map.check_wall(self.hitbox.centerx, self.hitbox.centery):
                 self.hitbox.x -= move_x
+            
             self.hitbox.y += move_y
             if game_map.check_wall(self.hitbox.centerx, self.hitbox.centery):
                 self.hitbox.y -= move_y
@@ -90,25 +97,13 @@ class Enemy(pygame.sprite.Sprite):
 
             self.state = 'running'
             
-            # Mise à jour direction mouvement
             if abs(move_x) > abs(move_y):
                 self.facing = 'right' if move_x > 0 else 'left'
             else:
                 self.facing = 'down' if move_y > 0 else 'up'
-
+        
         else:
-            # --- COMBAT (Si proche) ---
             self.state = 'idle'
-            
-            # NOUVEAU : On force le calcul de la direction même à l'arrêt
-            # dx_val > 0 veut dire que le joueur est à Droite
-            # dy_val > 0 veut dire que le joueur est en Bas
-            if abs(dx_val) > abs(dy_val):
-                self.facing = 'right' if dx_val > 0 else 'left'
-            else:
-                self.facing = 'down' if dy_val > 0 else 'up'
-
-            self.check_attack(player)
 
         self.animate()
 
@@ -122,7 +117,6 @@ class Enemy(pygame.sprite.Sprite):
             player.take_damage(self.damage)
 
     def animate(self):
-        # (Identique à avant)
         current_list = []
         speed = 0.2
         if self.state == 'attacking':
@@ -159,7 +153,17 @@ class Enemy(pygame.sprite.Sprite):
 
     def take_damage(self, amount):
         self.health -= amount
-        print(f"L'ennemi a pris {amount} dégâts. Vie restante : {self.health}")
         if self.health <= 0:
             self.kill()
-            print("L'ennemi est mort !")
+
+    # NOUVEAU : Barre de vie flottante
+    def draw_health(self, surface, camera_x, camera_y):
+        if self.health == self.max_health: return
+        x = self.rect.x - camera_x
+        y = self.rect.y - camera_y - 10
+        width = self.rect.width
+        height = 5
+        ratio = self.health / self.max_health
+        current_width = width * ratio
+        pygame.draw.rect(surface, (0,0,0), (x, y, width, height))
+        pygame.draw.rect(surface, (255,0,0), (x, y, current_width, height))
