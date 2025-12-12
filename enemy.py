@@ -4,22 +4,22 @@ import math
 from settings import *
 
 class Enemy(pygame.sprite.Sprite):
-    def __init__(self, start_x, start_y):
+    # ON AJOUTE max_health et damage DANS LES PARAMETRES
+    def __init__(self, start_x, start_y, max_health=100, damage=10):
         super().__init__()
         self.x = start_x
         self.y = start_y
         
-        # Stats
-        self.max_health = 100
+        # --- STATS DYNAMIQUES ---
+        self.max_health = max_health
         self.health = self.max_health
-        
-        # Combat
-        self.damage = 10
+        self.damage = damage
+        # ------------------------
+
         self.attack_range = 30
-        self.attack_cooldown = 2000 
+        self.attack_cooldown = 2000
         self.last_attack_time = 0
         
-        # Etats
         self.facing = 'down'
         self.state = 'idle'
         self.is_attacking = False
@@ -32,6 +32,7 @@ class Enemy(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.midbottom = (self.x, self.y)
         self.hitbox = self.rect.inflate(-100, -95)
+
 
     def load_sprites(self):
         # (Identique à avant)
